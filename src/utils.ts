@@ -1,5 +1,4 @@
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
 import { ActionableError } from "./robot";
 
@@ -15,19 +14,31 @@ export function validateLocale(locale: string): void {
 	}
 }
 
-function getAllowedRoots(): string[] {
-	const roots = [
-		os.tmpdir(),
-		process.cwd(),
-	];
-
-	// macOS /tmp is a symlink to /private/tmp, add both to be safe
-	if (process.platform === "darwin") {
-		roots.push("/tmp");
-		roots.push("/private/tmp");
+/**
+ * Resolve the optional, operator-configured directory allowlist.
+ *
+ * Policy (inverted from the upstream default): by default there is NO directory
+ * allowlist — coagent runs as a trusted full-admin operator and may write to any
+ * path the host process can write to. A restriction is OPT-IN via the
+ * MOBILE_MCP_ALLOWED_ROOTS environment variable, a platform-delimited list of
+ * directories (";"-separated on Windows, ":"-separated on POSIX, per path.delimiter).
+ *
+ * Returns the resolved root list when a restriction is configured, or null when
+ * no restriction is in force (the permissive default).
+ */
+function resolveConfiguredRoots(): string[] | null {
+	const configured = process.env.MOBILE_MCP_ALLOWED_ROOTS;
+	if (configured === undefined) {
+		return null;
 	}
 
-	return roots.map(r => path.resolve(r));
+	const roots = configured
+		.split(path.delimiter)
+		.map(r => r.trim())
+		.filter(r => r.length > 0)
+		.map(r => path.resolve(r));
+
+	return roots.length > 0 ? roots : null;
 }
 
 function isPathUnderRoot(filePath: string, root: string): boolean {
@@ -67,11 +78,23 @@ function resolveWithSymlinks(filePath: string): string {
 }
 
 export function validateOutputPath(filePath: string): void {
+	// Resolve symlinks first. This is a genuine safety property — it prevents a
+	// symlinked directory from escaping an explicitly-configured allow-root — and
+	// is preserved regardless of whether a root restriction is currently in force.
 	const resolved = resolveWithSymlinks(filePath);
-	const allowedRoots = getAllowedRoots();
+
+	// Default policy: NO directory allowlist. A trusted operator may write to any
+	// path the host process itself can write to. A directory restriction is opt-in
+	// via MOBILE_MCP_ALLOWED_ROOTS. This inverts the legacy default from
+	// "deny-unless-listed" to "allow-unless-explicitly-restricted".
+	const configuredRoots = resolveConfiguredRoots();
+	if (configuredRoots === null) {
+		return;
+	}
+
 	const isWindows = process.platform === "win32";
 
-	const isAllowed = allowedRoots.some(root => {
+	const isAllowed = configuredRoots.some(root => {
 		if (isWindows) {
 			return isPathUnderRoot(resolved.toLowerCase(), root.toLowerCase());
 		}
@@ -82,7 +105,7 @@ export function validateOutputPath(filePath: string): void {
 	if (!isAllowed) {
 		const dir = path.dirname(resolved);
 		throw new ActionableError(
-			`"${dir}" is not in the list of allowed directories. Allowed directories include the current directory and the temp directory on this host.`
+			`"${dir}" is not in the list of allowed directories configured via MOBILE_MCP_ALLOWED_ROOTS.`
 		);
 	}
 }
