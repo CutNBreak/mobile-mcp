@@ -15,7 +15,24 @@ const ENV_KEY = "MOBILE_MCP_ALLOWED_ROOTS";
 // The fleet user-temp convention — deliberately OUTSIDE the legacy allowlist
 // (os.tmpdir() + process.cwd()). Under the relaxed default policy a trusted
 // operator must be able to write here.
-const FLEET_TEMP_SHOT = "C:\\INFRAGENS\\infragens\\003_PHYSICAL\\001_user\\009_temp\\coagent\\shot.png";
+//
+// The estate home resolves as the hub's hub_estate does: INFRAGENS_HOME, then the
+// tree this file sits in (<home>/infragens/001_DIGITAL/005_mobile_phone_control/
+// mobile-mcp/test), then the fleet landing root.
+function estateHome(): string {
+	const fromEnv = process.env.INFRAGENS_HOME;
+	if (fromEnv) {
+		return fromEnv;
+	}
+	const infragens = path.resolve(__dirname, "..", "..", "..", "..");
+	if (path.basename(infragens).toLowerCase() === "infragens"
+		&& path.basename(path.resolve(__dirname, "..", "..", "..")) === "001_DIGITAL") {
+		return path.dirname(infragens);
+	}
+	return "C:\\INFRAGENS_v0.1.0";
+}
+
+const FLEET_TEMP_SHOT = path.join(estateHome(), "infragens", "003_PHYSICAL", "001_user", "009_temp", "coagent", "shot.png");
 
 describe("utils", () => {
 
